@@ -1,0 +1,66 @@
+18.1
+std::future<> provides access to the "future" outcome and also the return result of the function.  It also provides a way to "force" start the function if it wasn't started when first created.
+
+Does this mean that the "latest" the thread will start is on the result1.get()?  Also meaning that the worst case run time is the sequential running of the two functions (plus overhead)?
+
+To exchange data between the thread/scope that starts and controls the functionality and the returned future object, they both refer to a shared state that allows this. 
+
+Without calling get() there is NO guarantee that the function is ever called.
+
+A "callable object" must be used with async().
+
+If using a launch policy such as std::launch::async, get doesn't need to be explicitly called anymore (but if the lifetime of the future object expires, the program will block until the function has finished).  It is best to make the behaviour clear however. 
+
+To handle when a thread throws an exception, simply call .get() inside a try catch statement as if you were calling the function synchronously.  Even if the exception is thrown before reaching the try-catch, the future object simply holds this state until get() is called. 
+
+Only call get() once, afterwards the future object is in an invalide state - check valid().
+
+future.wait() will also force a thread to start and block the calling thread until the background task has finished.  
+
+future.wait_for() will wait for a specified time.
+future.wait_until() will allow you to wait until a specific timepoint. 
+
+one can poll by passing in a 0 duration or a past timepoint. 
+
+When polling, check states such as deferred to ensure you don't end up in a endless while loop.  If it's not deferred then it's ok to poll until future object has the ready status.  
+
+One can pass arguments by lambdas however be cautious if passing by reference -data races.  
+
+Shared states are useful for multiple threads requiring the result of another thread.  However, the get() function returns a reference to the result object so it should not be modified as multiple threads depend on this value (otherwise data races may occur).  
+
+18.2 ***********************************************
+
+std::thread
+- no launch policy - throws system_error if it can't start the thread. 
+- no interface to process the result
+- need to decide if calling join() or detach() (may call std::terminate).
+
+Detaching a thread lets it run in the background, forfeiting control of the thread (including accessors to information like if it is still running). 
+
+It's best not to pass objects by reference to detached threads. It may also access global/static objects in destruction when a program terminates - undefined. 
+
+In what situations would I use detached threads practically?
+
+Thread IDs ************
+this_thread can be used to obtain thread ids either from a thread object or from within the thread itself.  The id type ensures uniqueness for the ids.  
+
+Promise ********
+Promise objects can be passed into functions to hold return values or exceptions (similarly to the future object and async()).
+
+The threads can set the value and exception of the promise object.  
+
+Promise objects are templated/specialized for the task at hand.  
+
+Promises internally create a shared state.  Use std::ref to ensure passing by reference.  
+
+As soon as we set a value or exception the shared state becomes ready.  To access use get_future() on the promise object. 
+
+However, the thread may not be completed even when it's "ready".  It may set other values.  You can use set_value_at_thread_exit (exception has similar) ot set and flag that the thread is ready upon exit. 
+
+CANNOT set both a value and an exception - this causes an exception. 
+
+packaged_task<> **************
+
+packaget_task allows you to start a thread later (not immediately like async()).  After creating a task you can get a future object from it.  Then call the task like a function and use the future to wait until the task is ready.  
+
+

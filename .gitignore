@@ -1,3 +1,6 @@
 build/
 build_debug/
 
+!build/run_make.sh
+!build_debug/run_make.sh
+

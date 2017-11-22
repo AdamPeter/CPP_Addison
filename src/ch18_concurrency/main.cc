@@ -7,6 +7,7 @@
 
 using namespace std;
 
+// async and future
 namespace ex_18_1_1
 {
    
@@ -55,6 +56,7 @@ namespace ex_18_1_1
 
 }
 
+// Polling
 namespace ex_18_1_2
 {
     void do_something(char c)
@@ -103,10 +105,162 @@ namespace ex_18_1_2
      }
 }
 
+// Shared future
+namespace ex_18_1_3
+{
+    int query_number()
+    {
+        cout << "read number: ";
+        int num = 0;
+        cin >> num;
+
+        if(!cin) throw runtime_error("no number read");
+
+        return num;
+    }
+
+    void work(char c, shared_future<int> f)
+    {
+        try 
+        {
+            int num = f.get(); // this will be the result of query_number
+            
+            for(int i = 0; i < num; ++i)
+            {
+                this_thread::sleep_for(chrono::milliseconds(100));
+                cout.put(c).flush();
+            }
+        }
+        catch (const exception& e)
+        {
+            cerr << "Exception in: " << this_thread::get_id() << ": " << e.what() <<endl;
+        }
+    }
+
+    void main()
+    {
+        try
+        {
+            shared_future<int> f = async(query_number);
+
+            auto f1 = async(launch::async, work,'.', f);
+            auto f2 = async(launch::async, work,'+', f);
+            auto f3 = async(launch::async, work,'=', f);
+
+            f1.get();
+            f2.get();
+            f3.get();
+        }
+        catch (const exception& e)
+        {
+            cout << "Exception: " << e.what() << endl;
+        }
+
+        cout << "\ndone" << endl;
+
+    }
+}
+
+namespace ex_18_2_1
+{
+    void work(int num, char c)
+    {
+        try
+        {
+            default_random_engine dre(c*42);
+            uniform_int_distribution<int> id(10,1000);
+
+            for(int i = 0; i < 10; ++i)
+            {
+                this_thread::sleep_for(chrono::milliseconds(id(dre)));
+                cout.put(c).flush();
+            }
+        }
+        catch(const exception& e)
+        {
+            cerr << "exception: " << this_thread::get_id() << ": " << e.what() << endl;
+        }
+        catch(...)
+        {
+            cerr << "exception: " << this_thread::get_id() << endl;
+        }
+    }
+
+    void main()
+    {
+        try
+        {
+            thread t1(work, 5, '.');
+
+            cout << "started work" << endl;
+
+            for( int i = 0; i < 5; ++i )
+            {
+                thread t(work, 10, 'a'+i);
+                cout << "detaching: " << t.get_id() << endl;
+                t.detach();
+            }
+
+            cin.get();
+
+            t1.join();
+        }
+        catch(const exception& e)
+        {
+            cerr << "exception: " << e.what() << endl;
+        }
+    }
+}
+
+namespace ex_18_2_2
+{
+    void work(std::promise<std::string>& p)
+    {
+        try
+        {
+            std::cout << "read char ('x' for exception): ";
+            char c = std::cin.get();
+            if(c == 'x')
+            {
+                throw std::runtime_error(std::string("char ") + c + " read");
+            }
+
+            std::string s = std::string("char " ) + c + "processed";
+            p.set_value(std::move(s)); // causes ready state!
+        }
+        catch(...)
+        {
+            p.set_exception(current_exception()); // causes ready state
+        }
+    }
+
+    void main()
+    {
+        try
+        {
+            std::promise<std::string> p;
+            std::thread t(work, std::ref(p));
+
+            t.detach();
+
+            future<string> f(p.get_future());
+
+            std::cout << "result: " << f.get() << std::endl;
+        }
+        catch(...)
+        {
+            std::cerr << "exception " << endl;
+        }
+    }
+}
+
 int main()
 {
     bool b_ex_18_1_1 = false;
-    bool b_ex_18_1_2 = true;
+    bool b_ex_18_1_2 = false;
+    bool b_ex_18_1_3 = false;
+    bool b_ex_18_2_1 = false;
+    bool b_ex_18_2_2 = true;
 
     if(b_ex_18_1_1)
     {
@@ -118,6 +272,20 @@ int main()
         ex_18_1_2::main();
     }
 
+    if(b_ex_18_1_3)
+    {
+        ex_18_1_3::main();
+    }
+    
+    if(b_ex_18_2_1)
+    {
+        ex_18_2_1::main();
+    }
+
+    if(b_ex_18_2_2)
+    {
+        ex_18_2_2::main();
+    }
 
     return 0;
 }

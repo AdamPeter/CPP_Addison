@@ -4,6 +4,11 @@
 #include <chrono>
 #include <random>
 #include <exception>
+#include <mutex>
+#include <array>
+#include <condition_variable>
+#include <queue>
+#include <atomic>
 
 using namespace std;
 
@@ -254,13 +259,289 @@ namespace ex_18_2_2
     }
 }
 
+namespace ex_18_5_1
+{
+    mutex print_mutex;
+
+    void Print(const std::string& s)
+    {
+        std::lock_guard<std::mutex> l(print_mutex);
+        for(char c : s)
+        {
+            cout.put(c);
+        }
+
+        cout << endl;
+    } // unlocked here
+
+    int main()
+    {
+        auto f1 = async(launch::async, Print, "Hello from first thread. ");
+        auto f2 = async(launch::async, Print, "Hello from second thread. ");
+        Print("Hello from the main thread. ");
+
+        return 0;
+    }
+}
+
+namespace ex_18_5_1_2
+{
+    bool ready_flag;
+    mutex ready_mutex;
+
+    void thread1()
+    {
+        {
+            this_thread::sleep_for(chrono::milliseconds(200));
+            lock_guard<mutex> lg(ready_mutex);
+            cout << "Getting ready. " << endl;
+            ready_flag = true;
+        }
+    }
+
+    void thread2()
+    {
+        {
+            unique_lock<mutex> ul(ready_mutex);
+            while(!ready_flag)
+            {
+                ul.unlock();
+                // Give the ready thread a chance at the lock.  
+                this_thread::yield();
+                this_thread::sleep_for(chrono::milliseconds(100));
+                ul.lock();
+            }
+
+            cout << "ready!!";
+
+         }
+     }
+
+     void main()
+     {
+         auto f1 = async(launch::async, thread1);
+         auto f2 = async(launch::async, thread2);
+
+         f1.wait();
+         f2.wait();
+     }
+}
+
+namespace ex_18_5_2
+{
+
+    mutex m1;
+    mutex m2;
+    
+    array<int,10> array1;
+    array<int,10> array2;
+
+    void work1()
+    {
+        {
+            lock_guard<mutex> lg(m1);
+
+            for(int i = 0; i < array1.size(); ++i)
+            {
+                array1[i] = i*2;
+                this_thread::sleep_for(chrono::milliseconds(100));
+            }
+        }
+    }
+
+    void work2()
+    {
+        {
+            lock_guard<mutex> lg(m2);
+            for(int i = 0; i < array2.size(); ++i)
+            {
+                array2[i] = i*2+1;
+                this_thread::sleep_for(chrono::milliseconds(110));
+            }
+
+        }
+    }
+
+    void main()
+    {
+        auto f1 = async(launch::async, work1);
+        auto f2 = async(launch::async, work2);
+
+        while(std::try_lock(m1,m2) >= 0)
+        {
+            this_thread::yield();
+            this_thread::sleep_for(chrono::milliseconds(200));
+        }
+
+        {
+            std::lock_guard<mutex> l1(m1, adopt_lock);
+            std::lock_guard<mutex> l2(m2, adopt_lock);
+
+            for(int i = 0; i < array1.size(); ++i)
+            {
+                cout << array1[i] << endl;
+                cout << array2[i] << endl;
+            }
+        }
+
+    }
+}
+
+namespace ex_18_6_1
+{
+    bool ready_flag;
+    mutex ready_mutex;
+    condition_variable condition;
+
+    void thread1()
+    {
+        cout << "<return>" << endl;
+        cin.get();
+
+        {
+            std::lock_guard<mutex> lg(ready_mutex);
+            ready_flag = true;
+        }
+
+        condition.notify_one();
+    }
+
+    void thread2()
+    {
+        {
+            std::unique_lock<mutex> ul(ready_mutex);
+            condition.wait(ul, [] { return ready_flag;});
+        }
+
+        cout << "done" << endl;
+
+    }
+
+    void main()
+    {
+        auto f1 = async(launch::async, thread1);
+        auto f2 = async(launch::async, thread2);
+
+        f1.wait();
+        f2.wait();
+    }
+
+}
+
+namespace ex_18_6_2
+{
+    queue<int> q;
+    mutex mq;
+    condition_variable cond;
+
+    void provider(int val)
+    {
+        for( int i = 0; i < 6; ++i)
+        {
+            {
+                std::lock_guard<mutex> lg(mq);
+                q.push(val+i);
+            }
+            cond.notify_one();
+
+            this_thread::sleep_for(chrono::milliseconds(val));
+        }
+    }
+
+    void consumer(int num)
+    {
+        while(true)
+        {
+
+            int val;
+
+            {
+                std::unique_lock<mutex> ul(mq);
+                cond.wait(ul, []{return !q.empty();});
+
+                val = q.front();
+                q.pop();
+            }
+
+            cout << "consumer: " << num << ": " << val << endl;
+        }
+    }
+
+    void main()
+    {
+        vector<future<void>*> futures;
+        auto p1 = async(launch::async, provider, 100);
+        auto p2 = async(launch::async, provider, 300);
+        auto p3 = async(launch::async, provider, 500);
+
+        auto c1 = async(launch::async, consumer, 1);
+        auto c2 = async(launch::async, consumer, 2);
+        
+        futures.push_back(&p1);
+        futures.push_back(&p2);
+        futures.push_back(&p3);
+        futures.push_back(&c1);
+        futures.push_back(&c2);
+
+        for(auto p = futures.begin(); p != futures.end(); ++p)
+        {
+            (*p)->wait();
+        }
+
+    }
+}
+
+namespace ex_18_7_1
+{
+    long data;
+    atomic<bool> ready_flag(false);// doesn't guarantee value.
+
+    void provider()
+    {
+        cout << "<return>" << endl;
+        cin.get();
+
+        data = 42;
+
+        ready_flag.store(true);
+    }
+
+    void consumer()
+    {
+        while(!ready_flag.load())
+        {
+            cout.put('.').flush();
+            this_thread::sleep_for(chrono::milliseconds(200));
+        }
+
+        cout << data << endl;
+    }
+
+    void main()
+    {
+        auto p = async(launch::async, provider);
+        auto c = async(launch::async, consumer);
+        
+        p.wait();
+        c.wait();
+    }
+
+}
+
+
 int main()
 {
     bool b_ex_18_1_1 = false;
     bool b_ex_18_1_2 = false;
     bool b_ex_18_1_3 = false;
     bool b_ex_18_2_1 = false;
-    bool b_ex_18_2_2 = true;
+    bool b_ex_18_2_2 = false;
+    bool b_ex_18_5_1 = false;
+    bool b_ex_18_5_1_2 = false;
+    bool b_ex_18_5_2 = false;
+    bool b_ex_18_6_1 = false;
+    bool b_ex_18_6_2 = false;
+    bool b_ex_18_7_1 = true;
 
     if(b_ex_18_1_1)
     {
@@ -285,6 +566,36 @@ int main()
     if(b_ex_18_2_2)
     {
         ex_18_2_2::main();
+    }
+
+    if(b_ex_18_5_1)
+    {
+        ex_18_5_1::main();
+    }
+
+    if(b_ex_18_5_1_2)
+    {
+        ex_18_5_1_2::main();
+    }
+
+    if(b_ex_18_5_2)
+    {
+        ex_18_5_2::main();
+    }
+
+    if(b_ex_18_6_1)
+    {
+        ex_18_6_1::main();
+    }
+
+    if(b_ex_18_6_2)
+    {
+        ex_18_6_2::main();
+    }
+
+    if(b_ex_18_7_1)
+    {
+        ex_18_7_1::main();
     }
 
     return 0;

@@ -6,7 +6,6 @@ using namespace std;
 
 ExampleRunner::ExampleRunner()
 : examples_()
-, references_()
 , example_(nullptr)
 {
 
@@ -17,7 +16,7 @@ void ExampleRunner::Register(const std::string& name, CreateExample create_examp
     examples_[name] = create_example_func;
 }
 
-void ExampleRunner::Run(const std::string& name)
+int ExampleRunner::Run(const std::string& name)
 {
     CreateExample func = examples_[name];
     
@@ -32,6 +31,6 @@ void ExampleRunner::Run(const std::string& name)
     example_ = func();
 
     cout << "Running...." << endl;
-    example_->main();
+    return example_->main();
 }
 

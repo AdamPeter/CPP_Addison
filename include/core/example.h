@@ -2,6 +2,7 @@
 
 #include <string>
 #include <memory>
+#include <functional>
 
 class Example
 {
@@ -10,4 +11,4 @@ public:
     virtual int main() = 0;
 };
 
-typedef std::unique_ptr<Example> (*CreateExample)();
+typedef std::function<std::unique_ptr<Example>()> CreateExample;
